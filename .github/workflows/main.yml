@@ -74,7 +74,7 @@ jobs:
           cd downloads
           
           # 获取指定版本的发布信息
-          release_info=$(curl -s "https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/tags/${{ github.event.inputs.version_tag }}")
+          release_info=$(curl -s "https://api.github.com/repos/Openwrt-Passwall/openwrt-passwall/releases/tags/${{ github.event.inputs.version_tag }}")
           
           if [ "$release_info" = "Not Found" ] || [ -z "$release_info" ]; then
             echo "错误: 未找到版本 ${{ github.event.inputs.version_tag }}"
@@ -209,7 +209,7 @@ jobs:
       - name: Prepare release notes
         run: |
           # 从指定版本获取release notes
-          release_info=$(curl -s "https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/tags/${{ needs.build.outputs.version_tag }}")
+          release_info=$(curl -s "https://api.github.com/repos/Openwrt-Passwall/openwrt-passwall/releases/tags/${{ needs.build.outputs.version_tag }}")
           release_notes=$(echo "$release_info" | jq -r '.body // "No release notes available."')
           
           # 构建release body
