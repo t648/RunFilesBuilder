@@ -30,17 +30,11 @@ on:
         type: boolean
         default: true
 
-env:
-  BUILD_ARCHS: "x86_64 aarch64_cortex-a53"
-
 jobs:
-  build:
+  build-x86_64:
+    if: ${{ github.event.inputs.architectures == 'all' || github.event.inputs.architectures == 'x86_64' }}
     runs-on: ubuntu-22.04
-    
-    strategy:
-      matrix:
-        arch: 
-          - ${{ fromJSON('["x86_64", "aarch64_cortex-a53"]') }}
+    name: Build x86_64
     
     steps:
       - name: Checkout repository
@@ -49,7 +43,7 @@ jobs:
       - name: Validate version tag
         run: |
           echo "Building version: ${{ github.event.inputs.version_tag }}"
-          echo "Architecture: ${{ matrix.arch }}"
+          echo "Architecture: x86_64"
           echo "Include Luci: ${{ github.event.inputs.include_luci }}"
           
           # 验证tag格式（可选）
@@ -74,31 +68,21 @@ jobs:
           cd downloads
           
           # 获取指定版本的发布信息
-          release_info=$(curl -s "https://api.github.com/repos/Openwrt-Passwall/openwrt-passwall/releases/tags/${{ github.event.inputs.version_tag }}")
+          release_info=$(curl -s "https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/tags/${{ github.event.inputs.version_tag }}")
           
           if [ "$release_info" = "Not Found" ] || [ -z "$release_info" ]; then
             echo "错误: 未找到版本 ${{ github.event.inputs.version_tag }}"
             exit 1
           fi
           
-          # 根据架构下载对应的zip文件
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            zip_url=$(echo "$release_info" | jq -r '.assets[] | select(.name | contains("passwall_packages_ipk_x86_64")) | .browser_download_url')
-            if [ -z "$zip_url" ]; then
-              echo "未找到x86_64架构的文件"
-              exit 1
-            fi
-            echo "下载x86_64文件: $zip_url"
-            curl -L -o "passwall_packages_ipk_x86_64.zip" "$zip_url"
-          else
-            zip_url=$(echo "$release_info" | jq -r '.assets[] | select(.name | contains("passwall_packages_ipk_aarch64_cortex-a53")) | .browser_download_url')
-            if [ -z "$zip_url" ]; then
-              echo "未找到aarch64_cortex-a53架构的文件"
-              exit 1
-            fi
-            echo "下载aarch64_cortex-a53文件: $zip_url"
-            curl -L -o "passwall_packages_ipk_aarch64_cortex-a53.zip" "$zip_url"
+          # 下载x86_64架构文件
+          zip_url=$(echo "$release_info" | jq -r '.assets[] | select(.name | contains("passwall_packages_ipk_x86_64")) | .browser_download_url')
+          if [ -z "$zip_url" ]; then
+            echo "未找到x86_64架构的文件"
+            exit 1
           fi
+          echo "下载x86_64文件: $zip_url"
+          curl -L -o "passwall_packages_ipk_x86_64.zip" "$zip_url"
           
           # 下载luci文件（如果需要）
           if [ "${{ github.event.inputs.include_luci }}" = "true" ]; then
@@ -111,30 +95,25 @@ jobs:
 
       - name: Organize files
         run: |
-          mkdir -p passwall_${{ matrix.arch }}/depends passwall_${{ matrix.arch }}/main
+          mkdir -p passwall_x86_64/depends passwall_x86_64/main
           
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            unzip downloads/passwall_packages_ipk_x86_64.zip -d passwall_${{ matrix.arch }}/depends
-            rm downloads/passwall_packages_ipk_x86_64.zip
-          else
-            unzip downloads/passwall_packages_ipk_aarch64_cortex-a53.zip -d passwall_${{ matrix.arch }}/depends
-            rm downloads/passwall_packages_ipk_aarch64_cortex-a53.zip
-          fi
+          unzip downloads/passwall_packages_ipk_x86_64.zip -d passwall_x86_64/depends
+          rm downloads/passwall_packages_ipk_x86_64.zip
           
           if [ "${{ github.event.inputs.include_luci }}" = "true" ]; then
-            find downloads -name "luci-19.07*.ipk" -exec cp {} passwall_${{ matrix.arch }}/main/ \;
+            find downloads -name "luci-19.07*.ipk" -exec cp {} passwall_x86_64/main/ \;
           else
             echo "跳过Luci文件"
           fi
 
       - name: Create install.sh script
         run: |
-          cat <<'EOF' > passwall_${{ matrix.arch }}/install.sh
+          cat <<'EOF' > passwall_x86_64/install.sh
           #!/bin/sh
           echo "========================================"
           echo "Passwall Installation Script"
           echo "Version: ${{ github.event.inputs.version_tag }}"
-          echo "Architecture: ${{ matrix.arch }}"
+          echo "Architecture: x86_64"
           echo "Include Luci: ${{ github.event.inputs.include_luci }}"
           echo "========================================"
           
@@ -165,66 +144,220 @@ jobs:
           echo "========================================"
           EOF
           
-          chmod +x passwall_${{ matrix.arch }}/install.sh
+          chmod +x passwall_x86_64/install.sh
 
       - name: Create self-extracting package
         run: |
           ./makeself/makeself.sh \
-            passwall_${{ matrix.arch }}/ \
-            passwall_${{ matrix.arch }}_${{ github.event.inputs.version_tag }}_luci_${{ github.event.inputs.include_luci }}.run \
-            "Passwall ${{ matrix.arch }} ${{ github.event.inputs.version_tag }}" \
+            passwall_x86_64/ \
+            passwall_x86_64_${{ github.event.inputs.version_tag }}_luci_${{ github.event.inputs.include_luci }}.run \
+            "Passwall x86_64 ${{ github.event.inputs.version_tag }}" \
             ./install.sh
           
           echo "Created file:"
           ls -lh passwall_*.run
 
-      - name: Upload artifacts
+      - name: Upload x86_64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: passwall-${{ github.event.inputs.version_tag }}-${{ matrix.arch }}
-          path: |
-            passwall_${{ matrix.arch }}_${{ github.event.inputs.version_tag }}_luci_${{ github.event.inputs.include_luci }}.run
+          name: passwall-x86_64-${{ github.event.inputs.version_tag }}
+          path: passwall_x86_64_${{ github.event.inputs.version_tag }}_luci_${{ github.event.inputs.include_luci }}.run
           retention-days: 30
 
-    outputs:
-      version_tag: ${{ github.event.inputs.version_tag }}
-      include_luci: ${{ github.event.inputs.include_luci }}
-
-  create-release:
-    needs: build
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+  build-aarch64:
+    if: ${{ github.event.inputs.architectures == 'all' || github.event.inputs.architectures == 'aarch64_cortex-a53' }}
     runs-on: ubuntu-22.04
+    name: Build aarch64_cortex-a53
     
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Validate version tag
+        run: |
+          echo "Building version: ${{ github.event.inputs.version_tag }}"
+          echo "Architecture: aarch64_cortex-a53"
+          echo "Include Luci: ${{ github.event.inputs.include_luci }}"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl jq unzip
+
+      - name: Clone makeself repository
+        run: |
+          git clone https://github.com/megastep/makeself.git
+          cd makeself
+          chmod +x makeself.sh
+
+      - name: Download specific version files
+        run: |
+          mkdir -p downloads
+          cd downloads
+          
+          # 获取指定版本的发布信息
+          release_info=$(curl -s "https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/tags/${{ github.event.inputs.version_tag }}")
+          
+          if [ "$release_info" = "Not Found" ] || [ -z "$release_info" ]; then
+            echo "错误: 未找到版本 ${{ github.event.inputs.version_tag }}"
+            exit 1
+          fi
+          
+          # 下载aarch64_cortex-a53架构文件
+          zip_url=$(echo "$release_info" | jq -r '.assets[] | select(.name | contains("passwall_packages_ipk_aarch64_cortex-a53")) | .browser_download_url')
+          if [ -z "$zip_url" ]; then
+            echo "未找到aarch64_cortex-a53架构的文件"
+            exit 1
+          fi
+          echo "下载aarch64_cortex-a53文件: $zip_url"
+          curl -L -o "passwall_packages_ipk_aarch64_cortex-a53.zip" "$zip_url"
+          
+          # 下载luci文件（如果需要）
+          if [ "${{ github.event.inputs.include_luci }}" = "true" ]; then
+            luci_urls=$(echo "$release_info" | jq -r '.assets[] | select(.name | match("luci.*19\\.07.*ipk$")) | .browser_download_url')
+            for url in $luci_urls; do
+              echo "下载Luci文件: $url"
+              curl -L -o "$(basename "$url")" "$url"
+            done
+          fi
+
+      - name: Organize files
+        run: |
+          mkdir -p passwall_aarch64/depends passwall_aarch64/main
+          
+          unzip downloads/passwall_packages_ipk_aarch64_cortex-a53.zip -d passwall_aarch64/depends
+          rm downloads/passwall_packages_ipk_aarch64_cortex-a53.zip
+          
+          if [ "${{ github.event.inputs.include_luci }}" = "true" ]; then
+            find downloads -name "luci-19.07*.ipk" -exec cp {} passwall_aarch64/main/ \;
+          else
+            echo "跳过Luci文件"
+          fi
+
+      - name: Create install.sh script
+        run: |
+          cat <<'EOF' > passwall_aarch64/install.sh
+          #!/bin/sh
+          echo "========================================"
+          echo "Passwall Installation Script"
+          echo "Version: ${{ github.event.inputs.version_tag }}"
+          echo "Architecture: aarch64_cortex-a53"
+          echo "Include Luci: ${{ github.event.inputs.include_luci }}"
+          echo "========================================"
+          
+          # 检查是否为OpenWrt系统
+          if [ ! -f /etc/openwrt_release ]; then
+            echo "错误: 这不是OpenWrt系统!"
+            exit 1
+          fi
+          
+          echo "Updating package list..."
+          opkg update
+          
+          if [ $? -ne 0 ]; then
+              echo "警告: 更新软件包列表失败，尝试继续安装..."
+          fi
+          
+          echo "Installing dependencies..."
+          opkg install depends/*.ipk
+          
+          if [ -d "main" ] && [ "$(ls -A main/*.ipk 2>/dev/null)" ]; then
+              echo "Installing main packages..."
+              opkg install main/*.ipk
+          fi
+          
+          echo "========================================"
+          echo "安装完成!"
+          echo "请重启Luci界面或执行: /etc/init.d/rpcd restart"
+          echo "========================================"
+          EOF
+          
+          chmod +x passwall_aarch64/install.sh
+
+      - name: Create self-extracting package
+        run: |
+          ./makeself/makeself.sh \
+            passwall_aarch64/ \
+            passwall_aarch64_${{ github.event.inputs.version_tag }}_luci_${{ github.event.inputs.include_luci }}.run \
+            "Passwall aarch64_cortex-a53 ${{ github.event.inputs.version_tag }}" \
+            ./install.sh
+          
+          echo "Created file:"
+          ls -lh passwall_*.run
+
+      - name: Upload aarch64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: passwall-aarch64-${{ github.event.inputs.version_tag }}
+          path: passwall_aarch64_${{ github.event.inputs.version_tag }}_luci_${{ github.event.inputs.include_luci }}.run
+          retention-days: 30
+
+  create-release:
+    needs: [build-x86_64, build-aarch64]
+    runs-on: ubuntu-22.04
+    if: always()
+    
+    steps:
+      - name: Check build status
+        run: |
+          echo "x86_64 job status: ${{ needs.build-x86_64.result }}"
+          echo "aarch64 job status: ${{ needs.build-aarch64.result }}"
+      
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: passwall-*
           path: artifacts/
-          merge-multiple: true
       
       - name: List downloaded files
-        run: find artifacts -type f -name "*.run" | xargs -I {} echo "Found: {}"
+        run: |
+          echo "Downloaded artifacts:"
+          find artifacts -type f -name "*.run" | xargs -I {} echo "  - {}"
       
       - name: Prepare release notes
         run: |
           # 从指定版本获取release notes
-          release_info=$(curl -s "https://api.github.com/repos/Openwrt-Passwall/openwrt-passwall/releases/tags/${{ needs.build.outputs.version_tag }}")
+          release_info=$(curl -s "https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/tags/${{ github.event.inputs.version_tag }}")
           release_notes=$(echo "$release_info" | jq -r '.body // "No release notes available."')
+          
+          # 收集构建的架构
+          built_archs=""
+          if [ "${{ needs.build-x86_64.result }}" = "success" ] || [ "${{ needs.build-x86_64.result }}" = "skipped" ]; then
+            if [ "${{ github.event.inputs.architectures }}" = "all" ] || [ "${{ github.event.inputs.architectures }}" = "x86_64" ]; then
+              built_archs="${built_archs}x86_64 "
+            fi
+          fi
+          
+          if [ "${{ needs.build-aarch64.result }}" = "success" ] || [ "${{ needs.build-aarch64.result }}" = "skipped" ]; then
+            if [ "${{ github.event.inputs.architectures }}" = "all" ] || [ "${{ github.event.inputs.architectures }}" = "aarch64_cortex-a53" ]; then
+              built_archs="${built_archs}aarch64_cortex-a53 "
+            fi
+          fi
           
           # 构建release body
           cat <<EOF > release_body.md
-          # Passwall Run Files - ${{ needs.build.outputs.version_tag }}
+          # Passwall Run Files - ${{ github.event.inputs.version_tag }}
           
           ## 版本信息
-          - **版本**: ${{ needs.build.outputs.version_tag }}
+          - **版本**: ${{ github.event.inputs.version_tag }}
           - **编译时间**: $(TZ="Asia/Shanghai" date +'%Y-%m-%d %H:%M')
-          - **包含Luci**: ${{ needs.build.outputs.include_luci }}
+          - **包含Luci**: ${{ github.event.inputs.include_luci }}
+          - **架构**: $built_archs
           
           ## 下载文件
-          此版本包含以下架构的安装包：
-          - **x86_64** 架构
-          - **aarch64_cortex-a53** 架构
+          根据你的选择，此版本包含以下架构的安装包：
+          
+          EOF
+          
+          # 添加文件列表
+          if [ "${{ needs.build-x86_64.result }}" = "success" ] && [ -f "artifacts/passwall-x86_64-${{ github.event.inputs.version_tag }}/passwall_x86_64_${{ github.event.inputs.version_tag }}_luci_${{ github.event.inputs.include_luci }}.run" ]; then
+            echo "- **x86_64架构** - 适用于x86_64平台" >> release_body.md
+          fi
+          
+          if [ "${{ needs.build-aarch64.result }}" = "success" ] && [ -f "artifacts/passwall-aarch64-${{ github.event.inputs.version_tag }}/passwall_aarch64_${{ github.event.inputs.version_tag }}_luci_${{ github.event.inputs.include_luci }}.run" ]; then
+            echo "- **aarch64_cortex-a53架构** - 适用于ARM64平台" >> release_body.md
+          fi
+          
+          cat <<EOF >> release_body.md
           
           ## 使用说明
           1. 上传.run文件到OpenWrt设备
@@ -244,8 +377,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: build-${{ needs.build.outputs.version_tag }}-$(date +%Y%m%d%H%M%S)
-          name: "Passwall ${{ needs.build.outputs.version_tag }}"
+          tag_name: build-${{ github.event.inputs.version_tag }}-$(date +%Y%m%d%H%M%S)
+          name: "Passwall ${{ github.event.inputs.version_tag }}"
           body_file: release_body.md
           draft: false
           prerelease: false
