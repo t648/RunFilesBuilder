@@ -49,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl jq unzip
+          sudo apt-get install -y curl jq unzip file
 
       - name: Clone makeself repository
         run: |
@@ -87,7 +87,6 @@ jobs:
           
           # 检查release信息
           release_info=$(cat release_info.json)
-          echo "Debug: Release info size: $(echo "$release_info" | wc -l) lines"
           
           if echo "$release_info" | grep -q "Not Found"; then
             echo "错误: 未找到版本 ${{ github.event.inputs.version_tag }}"
@@ -95,21 +94,11 @@ jobs:
             exit 1
           fi
           
-          # 检查assets是否存在
-          assets_count=$(echo "$release_info" | jq -r '.assets | length // 0')
-          echo "Debug: Found $assets_count assets"
-          
-          if [ "$assets_count" -eq 0 ]; then
-            echo "错误: 该版本没有可下载的文件"
-            echo "Release assets为空"
-            exit 1
-          fi
-          
           # 列出所有文件以便调试
-          echo "Debug: Available files:"
+          echo "所有可用文件:"
           echo "$release_info" | jq -r '.assets[].name' || echo "无法列出文件"
           
-          # 下载x86_64架构文件 - 修复jq查询
+          # 下载x86_64架构文件
           echo "Looking for x86_64 files..."
           zip_url=$(echo "$release_info" | jq -r '.assets // [] | .[] | select(.name | contains("x86_64")) | .browser_download_url' | head -1)
           
@@ -120,13 +109,19 @@ jobs:
           
           if [ -z "$zip_url" ] || [ "$zip_url" = "null" ]; then
             echo "错误: 未找到x86_64架构的文件"
-            echo "尝试查找所有包含'x86'或'64'的文件:"
-            echo "$release_info" | jq -r '.assets // [] | .[] | select(.name | test("x86|64"; "i")) | .name' || true
             exit 1
           fi
           
-          echo "下载x86_64文件: $zip_url"
-          curl -L -o "passwall_packages_ipk_x86_64.zip" "$zip_url"
+          # 获取实际文件名
+          actual_filename=$(echo "$release_info" | jq -r '.assets // [] | .[] | select(.browser_download_url == "'"$zip_url"'") | .name')
+          echo "下载文件: $actual_filename"
+          
+          # 下载文件（使用原始文件名）
+          curl -L -o "$actual_filename" "$zip_url"
+          
+          # 检查文件类型
+          echo "文件类型:"
+          file "$actual_filename" || true
           
           # 下载luci文件
           if [ "${{ github.event.inputs.include_luci }}" = "true" ]; then
@@ -149,12 +144,43 @@ jobs:
         run: |
           mkdir -p passwall_x86_64/depends passwall_x86_64/main
           
-          if [ -f downloads/passwall_packages_ipk_x86_64.zip ]; then
-            unzip -q downloads/passwall_packages_ipk_x86_64.zip -d passwall_x86_64/depends
-            rm downloads/passwall_packages_ipk_x86_64.zip
-          else
-            echo "错误: passwall_packages_ipk_x86_64.zip 文件不存在"
+          # 查找下载的x86_64文件
+          x86_file=$(ls downloads/*x86*64*.zip downloads/*x86*64*.tar.gz downloads/*x86*64*.ipk 2>/dev/null | head -1)
+          
+          if [ -z "$x86_file" ]; then
+            echo "错误: 未找到x86_64架构的下载文件"
+            echo "下载目录内容:"
+            ls -la downloads/ || true
             exit 1
+          fi
+          
+          echo "处理文件: $x86_file"
+          
+          # 根据文件类型处理
+          if [[ "$x86_file" == *.zip ]]; then
+            echo "解压ZIP文件..."
+            unzip -q "$x86_file" -d passwall_x86_64/depends
+            rm "$x86_file"
+          elif [[ "$x86_file" == *.tar.gz ]] || [[ "$x86_file" == *.tgz ]]; then
+            echo "解压TAR.GZ文件..."
+            tar -xzf "$x86_file" -C passwall_x86_64/depends
+            rm "$x86_file"
+          elif [[ "$x86_file" == *.ipk ]]; then
+            echo "IPK文件，直接复制..."
+            cp "$x86_file" passwall_x86_64/depends/
+          else
+            echo "未知文件类型，尝试作为归档文件处理..."
+            # 尝试多种解压方式
+            if unzip -q "$x86_file" -d passwall_x86_64/depends 2>/dev/null; then
+              echo "成功作为ZIP文件解压"
+              rm "$x86_file"
+            elif tar -xzf "$x86_file" -C passwall_x86_64/depends 2>/dev/null; then
+              echo "成功作为TAR.GZ文件解压"
+              rm "$x86_file"
+            else
+              echo "无法解压文件，直接复制..."
+              cp "$x86_file" passwall_x86_64/depends/
+            fi
           fi
           
           if [ "${{ github.event.inputs.include_luci }}" = "true" ]; then
@@ -162,6 +188,9 @@ jobs:
               cp downloads/luci-*.ipk passwall_x86_64/main/ || true
             fi
           fi
+          
+          echo "文件结构:"
+          find passwall_x86_64 -type f -name "*.ipk" | head -10
 
       - name: Create install.sh script
         run: |
@@ -238,7 +267,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl jq unzip
+          sudo apt-get install -y curl jq unzip file
 
       - name: Clone makeself repository
         run: |
@@ -275,7 +304,6 @@ jobs:
           
           # 检查release信息
           release_info=$(cat release_info.json)
-          echo "Debug: Release info size: $(echo "$release_info" | wc -l) lines"
           
           if echo "$release_info" | grep -q "Not Found"; then
             echo "错误: 未找到版本 ${{ github.event.inputs.version_tag }}"
@@ -283,18 +311,8 @@ jobs:
             exit 1
           fi
           
-          # 检查assets是否存在
-          assets_count=$(echo "$release_info" | jq -r '.assets | length // 0')
-          echo "Debug: Found $assets_count assets"
-          
-          if [ "$assets_count" -eq 0 ]; then
-            echo "错误: 该版本没有可下载的文件"
-            echo "Release assets为空"
-            exit 1
-          fi
-          
           # 列出所有文件以便调试
-          echo "Debug: Available files:"
+          echo "所有可用文件:"
           echo "$release_info" | jq -r '.assets[].name' || echo "无法列出文件"
           
           echo "Looking for aarch64 files..."
@@ -310,18 +328,25 @@ jobs:
           
           if [ -z "$zip_url" ] || [ "$zip_url" = "null" ]; then
             # 显示所有文件帮助调试
-            echo "所有可用文件:"
+            echo "所有可用文件列表:"
             echo "$release_info" | jq -r '.assets // [] | .[].name' | while read -r filename; do
               echo "  - $filename"
             done
             
             echo "错误: 未找到aarch64_cortex-a53架构的文件"
-            echo "提示: 请检查版本 ${{ github.event.inputs.version_tag }} 是否包含ARM架构的文件"
             exit 1
           fi
           
-          echo "下载aarch64文件: $zip_url"
-          curl -L -o "passwall_packages_ipk_aarch64_cortex-a53.zip" "$zip_url"
+          # 获取实际文件名
+          actual_filename=$(echo "$release_info" | jq -r '.assets // [] | .[] | select(.browser_download_url == "'"$zip_url"'") | .name')
+          echo "下载文件: $actual_filename"
+          
+          # 下载文件（使用原始文件名）
+          curl -L -o "$actual_filename" "$zip_url"
+          
+          # 检查文件类型
+          echo "文件类型:"
+          file "$actual_filename" || true
           
           if [ "${{ github.event.inputs.include_luci }}" = "true" ]; then
             echo "Looking for Luci files..."
@@ -343,12 +368,58 @@ jobs:
         run: |
           mkdir -p passwall_aarch64/depends passwall_aarch64/main
           
-          if [ -f downloads/passwall_packages_ipk_aarch64_cortex-a53.zip ]; then
-            unzip -q downloads/passwall_packages_ipk_aarch64_cortex-a53.zip -d passwall_aarch64/depends
-            rm downloads/passwall_packages_ipk_aarch64_cortex-a53.zip
-          else
-            echo "错误: passwall_packages_ipk_aarch64_cortex-a53.zip 文件不存在"
+          # 查找下载的aarch64文件
+          arch_file=$(ls downloads/*aarch64*.zip downloads/*aarch64*.tar.gz downloads/*arm64*.zip downloads/*cortex-a53*.zip downloads/*aarch64*.ipk 2>/dev/null | head -1)
+          
+          if [ -z "$arch_file" ]; then
+            echo "错误: 未找到aarch64架构的下载文件"
+            echo "下载目录内容:"
+            ls -la downloads/ || true
             exit 1
+          fi
+          
+          echo "处理文件: $arch_file"
+          
+          # 根据文件类型处理
+          if [[ "$arch_file" == *.zip ]]; then
+            echo "尝试解压ZIP文件..."
+            if unzip -q "$arch_file" -d passwall_aarch64/depends; then
+              echo "成功解压ZIP文件"
+              rm "$arch_file"
+            else
+              echo "警告: ZIP解压失败，尝试其他格式..."
+              # 尝试tar.gz
+              if tar -xzf "$arch_file" -C passwall_aarch64/depends 2>/dev/null; then
+                echo "成功作为TAR.GZ文件解压"
+                rm "$arch_file"
+              else
+                echo "无法解压文件，直接复制..."
+                cp "$arch_file" passwall_aarch64/depends/
+              fi
+            fi
+          elif [[ "$arch_file" == *.tar.gz ]] || [[ "$arch_file" == *.tgz ]]; then
+            echo "解压TAR.GZ文件..."
+            tar -xzf "$arch_file" -C passwall_aarch64/depends
+            rm "$arch_file"
+          elif [[ "$arch_file" == *.ipk ]]; then
+            echo "IPK文件，直接复制..."
+            cp "$arch_file" passwall_aarch64/depends/
+          else
+            echo "未知文件类型，尝试多种解压方式..."
+            # 尝试多种解压方式
+            if unzip -q "$arch_file" -d passwall_aarch64/depends 2>/dev/null; then
+              echo "成功作为ZIP文件解压"
+              rm "$arch_file"
+            elif tar -xzf "$arch_file" -C passwall_aarch64/depends 2>/dev/null; then
+              echo "成功作为TAR.GZ文件解压"
+              rm "$arch_file"
+            elif tar -xjf "$arch_file" -C passwall_aarch64/depends 2>/dev/null; then
+              echo "成功作为TAR.BZ2文件解压"
+              rm "$arch_file"
+            else
+              echo "无法解压文件，直接复制..."
+              cp "$arch_file" passwall_aarch64/depends/
+            fi
           fi
           
           if [ "${{ github.event.inputs.include_luci }}" = "true" ]; then
@@ -356,6 +427,9 @@ jobs:
               cp downloads/luci-*.ipk passwall_aarch64/main/ || true
             fi
           fi
+          
+          echo "文件结构:"
+          find passwall_aarch64 -type f -name "*.ipk" | head -10
 
       - name: Create install.sh script
         run: |
